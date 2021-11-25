@@ -234,7 +234,6 @@ void *qoi_decode(const void *data, int size, int *out_w, int *out_h, int channel
 #define QOI_MASK_3  0xe0 // 11100000
 #define QOI_MASK_4  0xf0 // 11110000
 
-#define QOI_COLOR_HASH(C) (C.rgba.r ^ C.rgba.g ^ C.rgba.b ^ C.rgba.a)
 #define QOI_MAGIC \
 	(((unsigned int)'q') << 24 | ((unsigned int)'o') << 16 | \
 	 ((unsigned int)'i') <<  8 | ((unsigned int)'f'))
@@ -248,8 +247,18 @@ void *qoi_decode(const void *data, int size, int *out_w, int *out_h, int channel
 
 typedef union {
 	struct { unsigned char r, g, b, a; } rgba;
+	unsigned char bytes[4];
 	unsigned int v;
 } qoi_rgba_t;
+
+unsigned char inline qoi_color_hash(qoi_rgba_t p) {
+	unsigned char hash = 0;
+	for (int i = sizeof(p.bytes) - 1; i >= 0; i--) {
+		hash *= 37;
+		hash += p.bytes[i];
+	}
+	return hash;
+}
 
 void *qoi_encode(const void *data, int w, int h, int channels, int *out_len) {
 	if (
@@ -275,7 +284,7 @@ void *qoi_encode(const void *data, int w, int h, int channels, int *out_len) {
 
 	const unsigned char *pixels = (const unsigned char *)data;
 
-	qoi_rgba_t index[64] = {0};
+	qoi_rgba_t index[256] = {0};
 
 	int run = 0;
 	qoi_rgba_t px_prev = {.rgba = {.r = 0, .g = 0, .b = 0, .a = 255}};
@@ -311,7 +320,7 @@ void *qoi_encode(const void *data, int w, int h, int channels, int *out_len) {
 		}
 
 		if (px.v != px_prev.v) {
-			int index_pos = QOI_COLOR_HASH(px) % 64;
+			unsigned char index_pos = qoi_color_hash(px);
 
 			if (index[index_pos].v == px.v) {
 				bytes[p++] = QOI_INDEX | index_pos;
@@ -398,7 +407,7 @@ void *qoi_decode(const void *data, int size, int *out_w, int *out_h, int channel
 	}
 
 	qoi_rgba_t px = {.rgba = {.r = 0, .g = 0, .b = 0, .a = 255}};
-	qoi_rgba_t index[64] = {0};
+	qoi_rgba_t index[256] = {0};
 
 	int run = 0;
 	int chunks_len = size - QOI_PADDING;
@@ -445,7 +454,7 @@ void *qoi_decode(const void *data, int size, int *out_w, int *out_h, int channel
 				if (b1 & 1) { px.rgba.a = bytes[p++]; }
 			}
 
-			index[QOI_COLOR_HASH(px) % 64] = px;
+			index[qoi_color_hash(px)] = px;
 		}
 
 		if (channels == 4) { 
